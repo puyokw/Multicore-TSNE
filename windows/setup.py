@@ -13,7 +13,7 @@ import os
 class MyInstall(DistutilsInstall):
     def run(self):
         os.system(
-            'cp multicore_tsne/Release/tsne_multicore.dll python/tsne_multicore.dll')
+            'cp ../multicore_tsne/Release/tsne_multicore.dll python/tsne_multicore.dll')
         DistutilsInstall.run(self)
 
 

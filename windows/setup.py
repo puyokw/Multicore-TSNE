@@ -32,7 +32,7 @@ setup(
 
     packages=['MulticoreTSNE'],
     package_dir={'MulticoreTSNE': 'python'},
-    package_data={'MulticoreTSNE': ['multicore_tsne.dll']},
+    package_data={'MulticoreTSNE': ['tsne_multicore.dll']},
     include_package_data=True,
 
     cmdclass={"install": MyInstall},

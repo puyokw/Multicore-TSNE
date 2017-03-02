@@ -483,7 +483,7 @@ double TSNE::randn() {
 
 extern "C"
 {
-    extern void tsne_run_double(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, int _num_threads, int max_iter)
+    extern __declspec(dllexport) void tsne_run_double(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, int _num_threads, int max_iter)
     {
         printf("Performing t-SNE using %d cores.\n", _num_threads);
         TSNE tsne;

@@ -5,7 +5,7 @@ I used cmake3.7.1(cmake-gui)  (https://cmake.org/download/) for building Muticor
 2. Cmake from the CMakeLists.txt(../multicore_tsne/CMakeLists.txt). 
 (If you use the cmake-gui, set the directories like following png image, 
 and push the Configure button, and then push the Generate button.) 
-3. Open ../multicore_tsne/Project.sln. 
+3. Open ../multicore_tsne/Project.sln with Visual Studio. 
 4. Set configuration to Release and x64 
 5. Press F7 to build.
 6. The dll file is in ../multicore_tsne/Release/ after built. 

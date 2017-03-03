@@ -483,8 +483,13 @@ double TSNE::randn() {
 
 extern "C"
 {
+#if defined(_MSC_VER) && (_MSC_VER >= 1020)
+// this is for windows user, especially for building with Visual Studio
     extern __declspec(dllexport) void tsne_run_double(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, int _num_threads, int max_iter)
-    {
+# else 
+    extern void tsne_run_double(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, int _num_threads, int max_iter)
+#endif
+	{
         printf("Performing t-SNE using %d cores.\n", _num_threads);
         TSNE tsne;
         tsne.run(X, N, D, Y, no_dims, perplexity, theta, _num_threads, max_iter);

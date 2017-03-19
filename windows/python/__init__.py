@@ -51,41 +51,44 @@ class MulticoreTSNE:
         self.perplexity = perplexity
         self.n_iter = n_iter
         self.n_jobs = n_jobs
-
-        assert n_components == 2, 'n_components should be 2'
+        self.random_state = random_state
+        #assert n_components == 2 | n_components==3, 'n_components should be 2'
 
         self.ffi = cffi.FFI()
         self.ffi.cdef(
-            "void tsne_run_double(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, int _num_threads, int max_iter);")
+            "void tsne_run_double(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, int _num_threads, int random_seed, int max_iter);")
 
         path = os.path.dirname(os.path.realpath(__file__))
         self.C = self.ffi.dlopen(path + "\\tsne_multicore.dll")
 
     def fit_transform(self, X):
 
-        assert X.ndim == 2, 'X should be 2D array.'
+        #assert X.ndim==2 | X.ndim == 3, 'X should be 2D array.'
         assert X.dtype == np.float64, 'Only double arrays are supported for now. Use .astype(np.float64) to convert.'
         
         if self.n_jobs == -1:
             self.n_jobs = psutil.cpu_count()
-
+        
         assert self.n_jobs > 0, 'Wrong n_jobs parameter.'
-
+        
+        if self.random_state==None:
+            self.random_state=-1
+		
         N, D = X.shape
         Y = np.zeros((N, self.n_components))
-
+        
         cffi_X = self.ffi.cast('double*', X.ctypes.data)
         cffi_Y = self.ffi.cast('double*', Y.ctypes.data)
-
+        
         t = FuncThread(self.C.tsne_run_double,
                        cffi_X, N, D,
                        cffi_Y, self.n_components,
-                       self.perplexity, self.angle, self.n_jobs, self.n_iter)
+                       self.perplexity, self.angle, self.n_jobs, self.random_state, self.n_iter)
         t.daemon = True
         t.start()
-
+        
         while t.is_alive():
             t.join(timeout=1.0)
             sys.stdout.flush()
-
+        
         return Y

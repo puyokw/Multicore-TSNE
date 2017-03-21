@@ -48,9 +48,6 @@
 using namespace std;
 
 int random_seed = 131;
-random_device rd; 
-mt19937 mt;
-uniform_real_distribution<double> MT_double(0, 1);
 
 // Perform t-SNE
 void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, int _num_threads, bool verbose, int max_iter, double* cost, bool distance_precomputed, double* itercost, bool init) {
@@ -156,18 +153,29 @@ void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexit
         
         // Compute (approximate) gradient
         if(exact) computeExactGradient(P, Y, N, no_dims, dY);
-        else computeGradient(P, row_P, col_P, val_P, Y, N, no_dims, dY, theta);
-        
-        // Update gains
-        for(int i = 0; i < N * no_dims; i++) gains[i] = (sign_tsne(dY[i]) != sign_tsne(uY[i])) ? (gains[i] + .2) : (gains[i] * .8);
-        for(int i = 0; i < N * no_dims; i++) if(gains[i] < .01) gains[i] = .01;
-            
-        // Perform gradient update (with momentum and gains)
-        for(int i = 0; i < N * no_dims; i++) uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
-		for(int i = 0; i < N * no_dims; i++)  Y[i] = Y[i] + uY[i];
-        
+		else computeGradient(P, row_P, col_P, val_P, Y, N, no_dims, dY, theta);
+
+		// Update gains
+		#pragma omp parallel
+		{
+			#pragma omp for 
+			for (int i = 0; i < N * no_dims; i++){
+				gains[i] = (sign_tsne(dY[i]) != sign_tsne(uY[i])) ? (gains[i] + .2) : (gains[i] * .8);
+				if (gains[i] < .01) gains[i] = .01;
+			}
+			//for (int i = 0; i < N * no_dims; i++) if (gains[i] < .01) gains[i] = .01;
+
+			// Perform gradient update (with momentum and gains)
+			#pragma omp barrier			
+			#pragma omp for
+			for (int i = 0; i < N * no_dims; i++){
+				uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
+				Y[i] = Y[i] + uY[i];
+			}
+			//for (int i = 0; i < N * no_dims; i++)  Y[i] = Y[i] + uY[i];
+		}
         // Make solution zero-mean
-		    zeroMean(Y, N, no_dims);
+		zeroMean(Y, N, no_dims);
         
         // Print out progress
         if((iter > 0 && (iter+1) % 50 == 0) || iter == max_iter - 1) {
@@ -219,7 +227,8 @@ void TSNE::computeGradient(double* P, int* inp_row_P, int* inp_col_P, double* in
     double* pos_f = (double*) calloc(N * D, sizeof(double));
     double* neg_f = (double*) calloc(N * D, sizeof(double));
 	if (pos_f == NULL || neg_f == NULL) { printf("Memory allocation failed!\n"); exit(1); }
-	double** buff = (double**)calloc(N, sizeof(double));
+	double** buff = (double**)calloc(N, sizeof(double)); // (double**)calloc(omp_get_num_threads, sizeof(double));
+	
 	for (int n = 0; n < N; ++n){
 		buff[n] = (double*)calloc(D, sizeof(double));
 	}
@@ -237,6 +246,8 @@ void TSNE::computeGradient(double* P, int* inp_row_P, int* inp_col_P, double* in
     }
     free(pos_f);
     free(neg_f);
+	for (int n = 0; n < N; ++n) free(buff[n]);
+	free(buff);
     delete tree;
 }
 
@@ -326,21 +337,32 @@ double TSNE::evaluateError(int* row_P, int* col_P, double* val_P, double* Y, int
     SPTree* tree = new SPTree(D, Y, N);
     double* buff = (double*) calloc(D, sizeof(double));
     double sum_Q = .0;
-	for (int n = 0; n < N; n++){
-		double* buff1 = (double*)calloc(D, sizeof(double));
-		tree->computeNonEdgeForces(n, theta, buff, &sum_Q, &buff1[0]);
+	// double* buff1 = (double*)calloc(D, sizeof(double));
+	// for (int n = 0; n < N; n++) tree->computeNonEdgeForces(n, theta, buff, &sum_Q, &buff1[0]);
+	double** buff1 = (double**)calloc(N, sizeof(double)); 
+	for (int n = 0; n < N; ++n) buff1[n] = (double*)calloc(D, sizeof(double));
+#pragma omp parallel for reduction(+:sum_Q)
+	for (int n = 0; n < N; ++n) {
+		double this_Q = .0;
+		tree->computeNonEdgeForces(n, theta, buff, &this_Q, &buff1[n][0]);
+		sum_Q += this_Q;
 	}
     // Loop over all edges to compute t-SNE error
     int ind1, ind2;
-    double C = .0, Q;
+    double C = .0;
+//#pragma omp parallel for reduction(+:C)
     for(int n = 0; n < N; n++) {
         ind1 = n * D;
+		//#pragma omp parallel for reduction(+:C)
         for(int i = row_P[n]; i < row_P[n + 1]; i++) {
-            Q = .0;
+            double Q = .0;
             ind2 = col_P[i] * D;
-            for(int d = 0; d < D; d++) buff[d]  = Y[ind1 + d];
-            for(int d = 0; d < D; d++) buff[d] -= Y[ind2 + d];
-            for(int d = 0; d < D; d++) Q += buff[d] * buff[d];
+			double* buff2 = (double*)calloc(D, sizeof(double));
+			for (int d = 0; d < D; d++){
+				buff2[d] = Y[ind1 + d];
+				buff2[d] -= Y[ind2 + d];
+				Q += buff2[d] * buff2[d];
+			}
             Q = (1.0 / (1.0 + Q)) / sum_Q;
             C += val_P[i] * log((val_P[i] + FLT_MIN) / (Q + FLT_MIN));
         }
@@ -348,6 +370,8 @@ double TSNE::evaluateError(int* row_P, int* col_P, double* val_P, double* Y, int
     
     // Clean up memory
     free(buff);
+	for (int i = 0; i < N; ++i) free(buff1[i]);
+	free(buff1);
     delete tree;
     return C;
 }
@@ -395,8 +419,8 @@ void TSNE::getCost(int* row_P, int* col_P, double* val_P, double* Y, int N, int 
   SPTree* tree = new SPTree(D, Y, N);
   double* buff = (double*) calloc(D, sizeof(double));
   double sum_Q = .0;
+  double* buff1 = (double*)calloc(D, sizeof(double));
   for (int n = 0; n < N; n++){
-	  double* buff1 = (double*)calloc(D, sizeof(double));
 	  tree->computeNonEdgeForces(n, theta, buff, &sum_Q, &buff1[0]);
   }
   // Loop over all edges to compute t-SNE error
@@ -418,6 +442,7 @@ void TSNE::getCost(int* row_P, int* col_P, double* val_P, double* Y, int N, int 
   
   // Clean up memory
   free(buff);
+  free(buff1);
   delete tree;
 }
 
